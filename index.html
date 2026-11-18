@@ -40,6 +40,7 @@
       <label>渋滞待ち時間 / 1台目の発車時刻 (s)<input id="firstBusTime" type="number" min="0" step="10" value="600"></label>
       <label class="warmup-shift">ずらす車両の初期位置 (m)<input id="initialShift" type="number" step="0.1" value="0.1"></label>
       <label>停車時間 (s)<input id="dwell" type="number" min="0" step="1" value="20"></label>
+      <label>停留所の飛ばし方 (全バス共通)<select id="skipStops"><option value="0" selected>なし（全て停車）</option><option value="1">1個飛ばし（終点は停車）</option><option value="2">2個飛ばし（終点は停車）</option></select></label>
       <label>最大速度 (m/s)<input id="vmax" type="number" min="1" step="0.1" value="13.9"></label>
       <label>OV関数 d (m)<input id="d" type="number" min="0.1" step="0.1" value="12.1"></label>
       <label>OV関数 ω (m)<input id="omega" type="number" min="0.1" step="0.1" value="7.7"></label>
@@ -47,16 +48,16 @@
       <label>バスの反応係数 a (1/s)<input id="busA" type="number" min="0.01" step="0.05" value="0.8"></label>
       <label>バス最大加速度 (m/s²)<input id="maxAccel" type="number" min="0.05" step="0.1" value="1"></label>
       <label>減速度設定 β (m/s²)<input id="braking" type="number" min="0.05" step="0.1" value="1"></label>
-      <label>シミュレーション時間上限 (s)<input id="maxDuration" type="number" min="60" step="30" value="3600"></label>
+      <label>最初のバスの計算上限時間 (s)<input id="maxDuration" type="number" min="60" step="30" value="3600"></label>
       <label>計算刻み Δt (s)<input id="dt" type="number" min="0.02" max="0.5" step="0.02" value="0.1"></label>
       <label>動画の早送り<select id="playback"><option value="1">1倍</option><option value="2">2倍</option><option value="4">4倍</option><option value="8" selected>8倍</option></select></label>
       <label>停留所の位置 (m、カンマ区切り)<textarea id="stops">500, 1000, 1500, 2000, 2500, 3000</textarea></label>
     </div>
-    <p class="small">チェックを入れると、一般車両だけを「1台目のバスの発車時刻」まで走らせてからバスが発車します。2台目以降は「バスの発車間隔」で発車します。チェックを外すと、これまでどおり開始時に1台目が発車します。</p>
+    <p class="small">チェックを入れると、一般車両だけを「1台目のバスの発車時刻」まで走らせてからバスが発車します。2台目以降は「バスの発車間隔」で発車します。1個飛ばしは1か所を飛ばして2か所ごと、2個飛ばしは2か所を飛ばして3か所ごとに停車します。最初と終点は停車します。チェックを外すと開始時に1台目が発車します。</p>
     <div class="actions"><button id="run">実行</button><button id="saveVideo" class="secondary" disabled>動画を保存 (WebM)</button><progress id="progress" max="100" value="0"></progress><span id="status">条件を設定して実行してください。</span></div>
     <div class="metrics" id="metrics" hidden>
       <div class="metric"><b id="simTime">—</b><span>計算できた時間</span></div>
-      <div class="metric"><b id="stopCount">—</b><span>停留所の数</span></div>
+      <div class="metric"><b id="stopCount">—</b><span>各バスの停車数 / 全停留所</span></div>
       <div class="metric"><b id="completedCount">—</b><span>全停留所を通過したバス</span></div>
       <div class="metric"><b id="frameCount">—</b><span>保存した計算フレーム</span></div>
     </div>
@@ -96,7 +97,7 @@
   let sim=null,timeNow=0,playing=false,lastTime=0,lastGraphDraw=0,rate=4,recorder=null,chunks=[],recording=false;
 
   function paramsFromForm(){
-    const p={L:+$('roadLength').value,nCars:Math.floor(+$('nCars').value),returnFraction:+$('returnFraction').value,nBuses:Math.floor(+$('nBuses').value),headway:+$('headway').value,warmup:$('warmup').checked,firstBusTime:+$('firstBusTime').value,initialShift:+$('initialShift').value,dwell:+$('dwell').value,vmax:+$('vmax').value,d:+$('d').value,omega:+$('omega').value,carA:+$('carA').value,busA:+$('busA').value,maxAccel:+$('maxAccel').value,beta:+$('braking').value,maxDuration:+$('maxDuration').value,dt:+$('dt').value,playback:+$('playback').value,carLength:4.5,busLength:12};
+    const p={L:+$('roadLength').value,nCars:Math.floor(+$('nCars').value),returnFraction:+$('returnFraction').value,nBuses:Math.floor(+$('nBuses').value),headway:+$('headway').value,warmup:$('warmup').checked,firstBusTime:+$('firstBusTime').value,initialShift:+$('initialShift').value,dwell:+$('dwell').value,skipStops:Math.floor(+$('skipStops').value),vmax:+$('vmax').value,d:+$('d').value,omega:+$('omega').value,carA:+$('carA').value,busA:+$('busA').value,maxAccel:+$('maxAccel').value,beta:+$('braking').value,maxDuration:+$('maxDuration').value,dt:+$('dt').value,playback:+$('playback').value,carLength:4.5,busLength:12};
     for(const [k,v] of Object.entries(p))if(typeof v==='number'&&!Number.isFinite(v))throw Error(`${k} に有効な数値を入力してください。`);
     if(p.L<=0||p.nCars<2||p.nBuses<1||p.nBuses>8||p.returnFraction<0||p.returnFraction>=1||p.nCars*(p.carLength+1)>=p.L||p.headway<=0||p.firstBusTime<0||p.dwell<0||p.vmax<=0||p.d<=0||p.omega<=0||p.carA<=0||p.busA<=0||p.maxAccel<=0||p.beta<=0||p.maxDuration<=0||p.dt<0.02||p.dt>0.5)throw Error('台数、道路長、速度や加速度などの値を確認してください。');
     p.stops=$('stops').value.split(',').map(s=>Number(s.trim())).filter(Number.isFinite);
@@ -119,6 +120,7 @@
     if(p.warmup){const routeLength=2*p.L;cs[0]=(cs[0]+p.initialShift)%routeLength;cd[0]=cs[0]<p.L?1:-1;cx[0]=cd[0]>0?cs[0]:routeLength-cs[0];const commonSpeed=opt(routeLength/n-p.carLength,p);cv.fill(commonSpeed);}
     const busX=new Float64Array(nb).fill(NaN),busV=new Float64Array(nb),busA=new Float64Array(nb),mode=Array(nb).fill('scheduled');
     const firstBusTime=p.warmup?p.firstBusTime:0;
+    const servedStopIndices=Array.from({length:p.stops.length},(_,i)=>i).filter(i=>i%(p.skipStops+1)===0||i===p.stops.length-1);
     const stopI=new Int32Array(nb),dwellLeft=new Float64Array(nb),startTimes=Array.from({length:nb},(_,i)=>firstBusTime+i*p.headway);
     if(!p.warmup){busX[0]=0;mode[0]=p.stops.length?'moving':'finished';}
     const positions=[],speeds=[],directions=[],bPositions=[],bSpeeds=[],bAcc=[],bStates=[],times=[];
@@ -145,7 +147,7 @@
         if(mode[b]==='scheduled'||mode[b]==='finished')continue;
         if(mode[b]==='dwell'){
           busV[b]=0;dwellLeft[b]-=p.dt;
-          if(dwellLeft[b]<=0){stopI[b]++;if(stopI[b]>=p.stops.length){busX[b]=p.stops[p.stops.length-1];mode[b]='finished';}else mode[b]='moving';}
+          if(dwellLeft[b]<=0){stopI[b]++;if(stopI[b]>=servedStopIndices.length){busX[b]=p.stops[p.stops.length-1];mode[b]='finished';}else mode[b]='moving';}
           continue;
         }
         const bx=busX[b];let nearest=Infinity,leaderLength=p.carLength;
@@ -153,7 +155,7 @@
         for(let other=0;other<nb;other++)if(other!==b&&Number.isFinite(busX[other])&&busX[other]>bx&&!['scheduled','finished'].includes(mode[other])){const dist=busX[other]-bx;if(dist<nearest){nearest=dist;leaderLength=p.busLength;}}
         const busGap=Number.isFinite(nearest)?nearest-leaderLength:p.L;
         let accel=Math.min(p.busA*(opt(busGap,p)-busV[b]),p.maxAccel);
-        const actualStop=p.stops[stopI[b]],remaining=actualStop-bx;
+        const actualStop=p.stops[servedStopIndices[stopI[b]]],remaining=actualStop-bx;
         if(remaining>0&&busV[b]>0){const stoppingDistance=busV[b]*busV[b]/(2*p.beta);if(stoppingDistance>=remaining)accel=Math.min(accel,-busV[b]*busV[b]/(2*remaining));}
         busA[b]=accel;busV[b]=Math.max(0,busV[b]+accel*p.dt);busX[b]+=busV[b]*p.dt;
         if((actualStop-busX[b]<=0.5&&busV[b]<=0.2)||busX[b]>=actualStop){busX[b]=actualStop;busV[b]=0;mode[b]='dwell';dwellLeft[b]=p.dwell;busA[b]=0;}
@@ -231,7 +233,8 @@
       rows.push(`<tr><td><span style="color:${colors[b%colors.length]}">●</span> Bus ${b+1}</td><td>${sim.startTimes[b].toFixed(0)} s</td><td>${finish>=0?`${(finish-sim.startTimes[b]).toFixed(1)} s`:'未完了'}</td><td>${finish>=0?'完走':'時間上限までに未完了'}</td></tr>`);
     }
     $('resultsTable').innerHTML=`<table><thead><tr><th>バス</th><th>発車時刻</th><th>所要時間</th><th>状態</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
-    $('completedCount').textContent=`${completed} / ${nb} 台`;$('simTime').textContent=fmtTime(sim.times[sim.frames-1]);$('stopCount').textContent=`${p.stops.length} か所`;$('frameCount').textContent=sim.frames.toLocaleString();
+    const servedStopCount=Array.from({length:p.stops.length},(_,i)=>i).filter(i=>i%(p.skipStops+1)===0||i===p.stops.length-1).length;
+    $('completedCount').textContent=`${completed} / ${nb} 台`;$('simTime').textContent=fmtTime(sim.times[sim.frames-1]);$('stopCount').textContent=`${servedStopCount} / ${p.stops.length} か所`;$('frameCount').textContent=sim.frames.toLocaleString();
     $('busSelect').innerHTML=Array.from({length:nb},(_,b)=>`<option value="${b}">Bus ${b+1}</option>`).join('');$('busSelect').disabled=false;
     $('busLegend').innerHTML=Array.from({length:nb},(_,b)=>`<span><i class="key" style="background:${colors[b%colors.length]}"></i>Bus ${b+1}</span>`).join('');
     $('roadLegend').innerHTML=Array.from({length:nb},(_,b)=>`<span><i class="key" style="background:${colors[b%colors.length]};border-radius:2px"></i>Bus ${b+1}</span>`).join('')+'<span>● 一般車両（赤=低速、緑=高速）</span><span>◎ 停車中</span>';
