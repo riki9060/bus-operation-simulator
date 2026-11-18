@@ -32,24 +32,24 @@
     <h2>シミュレーション条件</h2>
     <div class="controls">
       <label>道路長 (m)<input id="roadLength" type="number" min="500" step="100" value="3000"></label>
-      <label>一般車両の台数<input id="nCars" type="number" min="2" max="1000" step="1" value="150"></label>
+      <label>一般車両の台数<input id="nCars" type="number" min="2" max="1000" step="1" value="300"></label>
       <label>折返し側に置く車両の割合<input id="returnFraction" type="number" min="0" max="0.95" step="0.05" value="0.5"></label>
       <label>バスの台数<input id="nBuses" type="number" min="1" max="8" step="1" value="2"></label>
       <label>バスの発車間隔 (s)<input id="headway" type="number" min="10" step="10" value="180"></label>
-      <label class="warmup-option"><input id="warmup" type="checkbox">渋滞の成長を待ってからバスを発車</label>
-      <label>1台目のバスの発車時刻 (s)<input id="firstBusTime" type="number" min="0" step="10" value="180"></label>
+      <label class="warmup-option"><input id="warmup" type="checkbox" checked>渋滞の成長を待ってからバスを発車</label>
+      <label>渋滞待ち時間 / 1台目の発車時刻 (s)<input id="firstBusTime" type="number" min="0" step="10" value="600"></label>
       <label class="warmup-shift">ずらす車両の初期位置 (m)<input id="initialShift" type="number" step="0.1" value="0.1"></label>
       <label>停車時間 (s)<input id="dwell" type="number" min="0" step="1" value="20"></label>
       <label>最大速度 (m/s)<input id="vmax" type="number" min="1" step="0.1" value="13.9"></label>
       <label>OV関数 d (m)<input id="d" type="number" min="0.1" step="0.1" value="12.1"></label>
       <label>OV関数 ω (m)<input id="omega" type="number" min="0.1" step="0.1" value="7.7"></label>
-      <label>一般車両の反応係数 a (1/s)<input id="carA" type="number" min="0.01" step="0.05" value="1.2"></label>
-      <label>バスの反応係数 a (1/s)<input id="busA" type="number" min="0.01" step="0.05" value="1.2"></label>
+      <label>一般車両の反応係数 a (1/s)<input id="carA" type="number" min="0.01" step="0.05" value="1.0"></label>
+      <label>バスの反応係数 a (1/s)<input id="busA" type="number" min="0.01" step="0.05" value="0.8"></label>
       <label>バス最大加速度 (m/s²)<input id="maxAccel" type="number" min="0.05" step="0.1" value="1"></label>
-      <label>減速度設定 β (m/s²)<input id="braking" type="number" min="0.05" step="0.1" value="0.8"></label>
-      <label>最初のバスの計算上限時間 (s)<input id="maxDuration" type="number" min="60" step="30" value="600"></label>
+      <label>減速度設定 β (m/s²)<input id="braking" type="number" min="0.05" step="0.1" value="1"></label>
+      <label>最初のバスの計算上限時間 (s)<input id="maxDuration" type="number" min="60" step="30" value="3600"></label>
       <label>計算刻み Δt (s)<input id="dt" type="number" min="0.02" max="0.5" step="0.02" value="0.1"></label>
-      <label>動画の早送り<select id="playback"><option value="1">1倍</option><option value="2">2倍</option><option value="4" selected>4倍</option><option value="8">8倍</option></select></label>
+      <label>動画の早送り<select id="playback"><option value="1">1倍</option><option value="2">2倍</option><option value="4">4倍</option><option value="8" selected>8倍</option></select></label>
       <label>停留所の位置 (m、カンマ区切り)<textarea id="stops">500, 1000, 1500, 2000, 2500, 3000</textarea></label>
     </div>
     <p class="small">チェックを入れると、一般車両だけを「1台目のバスの発車時刻」まで走らせてからバスが発車します。2台目以降は「バスの発車間隔」で発車します。チェックを外すと、これまでどおり開始時に1台目が発車します。</p>
@@ -179,7 +179,7 @@
   function displayDuration(){return Math.max(sim.times[sim.frames-1]-sim.displayStartTime,sim.p.dt);}
   function drawRoad(){
     if(!sim)return;const W=road.width,H=road.height,ctx=roadCtx;ctx.clearRect(0,0,W,H);ctx.fillStyle='#fbfcfd';ctx.fillRect(0,0,W,H);
-    const left=65,right=W-25,span=right-left,sel=Math.max(sim.displayStartFrame,Math.min(Math.floor(timeNow/sim.p.dt),sim.frames-1)),base=sel*sim.p.nCars,bbase=sel*sim.p.nBuses;
+    const left=65,right=W-25,span=right-left,sel=Math.min(Math.floor(timeNow/sim.p.dt),sim.frames-1),base=sel*sim.p.nCars,bbase=sel*sim.p.nBuses;
     const outboundY=76,returnY=145;ctx.font='13px system-ui';ctx.textAlign='right';ctx.fillStyle='#596675';
     ctx.fillText('往路 →',left-10,outboundY+4);ctx.fillText('復路 ←',left-10,returnY+4);
     for(const y of [outboundY,returnY]){ctx.strokeStyle='#b5bec7';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(left,y);ctx.lineTo(right,y);ctx.stroke();}
@@ -187,7 +187,8 @@
     for(let i=0;i<sim.p.nCars;i++){const x=sim.carX[base+i],v=sim.carV[base+i],dir=sim.carDir[base+i],px=left+span*x/sim.p.L,y=dir>0?outboundY:returnY,color=`hsl(${120*Math.max(0,Math.min(1,v/sim.p.vmax))},82%,43%)`;ctx.beginPath();ctx.fillStyle=color;ctx.arc(px,y,4,0,Math.PI*2);ctx.fill();}
     for(let b=0;b<sim.p.nBuses;b++){const x=sim.busX[bbase+b],state=sim.busState[bbase+b];if(!Number.isFinite(x))continue;const px=left+span*x/sim.p.L;ctx.fillStyle='#fff';ctx.fillRect(px-8,outboundY-8,16,16);ctx.fillStyle=colors[b%colors.length];ctx.fillRect(px-6,outboundY-6,12,12);if(state===2){ctx.strokeStyle='#e48918';ctx.lineWidth=2;ctx.beginPath();ctx.arc(px,outboundY,10,0,2*Math.PI);ctx.stroke();}}
     ctx.textAlign='left';ctx.fillStyle='#596675';ctx.fillText('0 m',left,193);ctx.textAlign='right';ctx.fillText(`${sim.p.L.toLocaleString()} m`,right,193);ctx.textAlign='left';ctx.fillStyle='#24313e';ctx.font='bold 14px system-ui';ctx.fillText(`時刻 ${fmtTime(timeNow)}　|　一般車両の色: 赤=低速、緑=高速`,left,20);
-    $('clock').textContent=`${fmtTime(Math.max(0,timeNow-sim.displayStartTime))} / ${fmtTime(displayDuration())}`;$('scrub').value=String(sel);
+    const shownElapsed=fmtTime(Math.max(0,timeNow-sim.displayStartTime)),shownDuration=fmtTime(displayDuration());
+    $('clock').textContent=sim.p.warmup&&timeNow<sim.displayStartTime?`渋滞育成中 ${fmtTime(timeNow)} / ${fmtTime(sim.displayStartTime)}`:sim.p.warmup?`発車後 ${shownElapsed} / ${shownDuration}（発車 ${fmtTime(sim.displayStartTime)}）`:`${fmtTime(timeNow)} / ${fmtTime(sim.times[sim.frames-1])}`;$('scrub').value=String(sel);
   }
   function drawPosition(){
     const c=$('positionGraph'),ctx=c.getContext('2d'),W=c.width,H=c.height,a=axes(ctx,W,H),duration=displayDuration(),start=sim.displayStartTime;
@@ -197,7 +198,7 @@
     for(let b=0;b<sim.p.nBuses;b++){ctx.beginPath();ctx.strokeStyle=colors[b%colors.length];ctx.lineWidth=2.2;let started=false;for(let f=sim.displayStartFrame;f<sim.frames;f+=stride){const x=sim.times[f]-start,pos=sim.busX[f*sim.p.nBuses+b];if(!Number.isFinite(pos)){started=false;continue;}const px=a.l+a.pw*x/duration,py=a.t+a.ph*(1-pos/sim.p.L);if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py);}ctx.stroke();}
     ctx.restore();labelTimeAxis(ctx,a,W,H,duration);ctx.textAlign='right';ctx.font='12px system-ui';ctx.fillStyle='#5c6876';for(let i=0;i<=4;i++){const pos=sim.p.L*(1-i/4),y=a.t+a.ph*i/4;ctx.fillText(`${pos.toFixed(0)} m`,a.l-8,y+4);}
     ctx.save();ctx.translate(18,a.t+a.ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText('バス位置 (m)',0,0);ctx.restore();
-    ctx.strokeStyle='#d43d36';ctx.setLineDash([4,4]);const cursor=a.l+a.pw*(timeNow-start)/duration;ctx.beginPath();ctx.moveTo(cursor,a.t);ctx.lineTo(cursor,H-a.b);ctx.stroke();ctx.setLineDash([]);
+    ctx.strokeStyle='#d43d36';ctx.setLineDash([4,4]);const cursor=a.l+a.pw*Math.max(0,Math.min(duration,timeNow-start))/duration;ctx.beginPath();ctx.moveTo(cursor,a.t);ctx.lineTo(cursor,H-a.b);ctx.stroke();ctx.setLineDash([]);
   }
   function drawBusSignals(canvasId,which){
     const c=$(canvasId),ctx=c.getContext('2d'),W=c.width,H=c.height,a=axes(ctx,W,H,{l:62,r:25,t:22,b:38}),duration=displayDuration(),start=sim.displayStartTime,b=+$('busSelect').value,nb=sim.p.nBuses,thresholdSpeed=13.9;
@@ -218,7 +219,7 @@
     labelTimeAxis(ctx,a,W,H,duration);ctx.fillStyle='#5c6876';ctx.font='12px system-ui';ctx.textAlign='right';for(let i=0;i<=4;i++){const v=which==='speed'?vmax*(1-i/4):vmax*(1-2*i/4),y=a.t+a.ph*i/4;ctx.fillText(which==='speed'?`${Math.max(0,v).toFixed(0)}`:`${v.toFixed(1)}`,a.l-8,y+4);}
     ctx.save();ctx.translate(17,a.t+a.ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText(which==='speed'?'速度 (km/h)':'加速度 (m/s²)',0,0);ctx.restore();
     if(which==='speed'){ctx.fillStyle=colors[b%colors.length];ctx.textAlign='left';ctx.fillText(`Bus ${b+1}`,a.l+8,a.t+14);ctx.fillStyle='#394b5d';ctx.fillText('一般車両の平均',a.l+82,a.t+14);ctx.fillStyle='#a66700';ctx.fillText('薄橙 = バス停車中',a.l+250,a.t+14);}else{ctx.fillStyle=colors[b%colors.length];ctx.textAlign='left';ctx.fillText(`Bus ${b+1}`,a.l+8,a.t+14);}
-    const cur=a.l+a.pw*(timeNow-start)/duration;ctx.strokeStyle='#d43d36';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(cur,a.t);ctx.lineTo(cur,H-a.b);ctx.stroke();ctx.setLineDash([]);
+    const cur=a.l+a.pw*Math.max(0,Math.min(duration,timeNow-start))/duration;ctx.strokeStyle='#d43d36';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(cur,a.t);ctx.lineTo(cur,H-a.b);ctx.stroke();ctx.setLineDash([]);
   }
   function labelTimeAxis(ctx,a,W,H,duration){ctx.fillStyle='#5c6876';ctx.font='12px system-ui';ctx.textAlign='center';for(let i=0;i<=4;i++){const x=a.l+a.pw*i/4;ctx.fillText(fmtTime(duration*i/4),x,H-10);}}
   function drawGraphs(){drawPosition();drawBusSignals('speedGraph','speed');drawBusSignals('accGraph','acc');}
@@ -235,7 +236,7 @@
     $('busLegend').innerHTML=Array.from({length:nb},(_,b)=>`<span><i class="key" style="background:${colors[b%colors.length]}"></i>Bus ${b+1}</span>`).join('');
     $('roadLegend').innerHTML=Array.from({length:nb},(_,b)=>`<span><i class="key" style="background:${colors[b%colors.length]};border-radius:2px"></i>Bus ${b+1}</span>`).join('')+'<span>● 一般車両（赤=低速、緑=高速）</span><span>◎ 停車中</span>';
   }
-  function setTime(t){timeNow=Math.max(sim.displayStartTime,Math.min(sim.times[sim.frames-1],t));drawRoad();drawGraphs();}
+  function setTime(t){timeNow=Math.max(0,Math.min(sim.times[sim.frames-1],t));drawRoad();drawGraphs();}
   function loop(now){requestAnimationFrame(loop);if(!sim)return;if(playing){if(lastTime)timeNow+=(now-lastTime)/1000*rate;if(timeNow>=sim.times[sim.frames-1]){timeNow=sim.times[sim.frames-1];playing=false;toggle.textContent='再生';if(recording)stopRecording();}lastTime=now;}else lastTime=0;drawRoad();if(now-lastGraphDraw>250){drawGraphs();lastGraphDraw=now;}}
   requestAnimationFrame(loop);
 
@@ -243,10 +244,10 @@
     run.disabled=true;toggle.disabled=true;save.disabled=true;$('busSelect').disabled=true;$('scrub').disabled=true;progress.value=0;status.textContent='計算中…';
     try{
       const p=paramsFromForm();rate=p.playback;
-      const result=await calculate(p,v=>{progress.value=v*100;status.textContent=`計算中… ${Math.round(v*100)}%`;});sim=result;setDisplayStart();timeNow=sim.displayStartTime;playing=true;
+      const result=await calculate(p,v=>{progress.value=v*100;status.textContent=`計算中… ${Math.round(v*100)}%`;});sim=result;setDisplayStart();timeNow=0;playing=true;
       populateResults();drawRoad();drawGraphs();$('metrics').hidden=false;
-      $('scrub').min=String(sim.displayStartFrame);$('scrub').max=String(sim.frames-1);$('scrub').value=String(sim.displayStartFrame);$('scrub').disabled=false;toggle.disabled=false;toggle.textContent='一時停止';save.disabled=!(road.captureStream&&window.MediaRecorder);
-      status.textContent=`計算完了 — ${sim.frames.toLocaleString()}フレーム`;
+      $('scrub').min='0';$('scrub').max=String(sim.frames-1);$('scrub').value='0';$('scrub').disabled=false;toggle.disabled=false;toggle.textContent='一時停止';save.disabled=!(road.captureStream&&window.MediaRecorder);
+      status.textContent=`計算完了 — ${sim.frames.toLocaleString()}フレーム${p.warmup?`（一般車のみ ${fmtTime(sim.displayStartTime)} 走行後に発車）`:''}`;
     }catch(e){status.textContent=`入力または計算エラー: ${e.message}`;}
     finally{run.disabled=false;progress.value=100;}
   });
@@ -260,7 +261,7 @@
     recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:1200000});chunks=[];recording=true;
     recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
     recorder.onstop=()=>{const url=URL.createObjectURL(new Blob(chunks,{type:'video/webm'})),a=document.createElement('a');a.href=url;a.download='bus_traffic_simulation.webm';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);recording=false;save.disabled=false;save.textContent='動画を保存 (WebM)';status.textContent='動画を保存しました。';stream.getTracks().forEach(t=>t.stop());};
-    recorder.start();save.disabled=true;save.textContent='録画中…';timeNow=sim.displayStartTime;playing=true;toggle.textContent='一時停止';lastTime=0;
+    recorder.start();save.disabled=true;save.textContent='録画中…';timeNow=0;playing=true;toggle.textContent='一時停止';lastTime=0;
   });
 })();
 </script>
