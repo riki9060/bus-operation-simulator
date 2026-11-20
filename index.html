@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>バス運行シミュレーター</title>
+  <style>
+    :root{color-scheme:light;--ink:#18212b;--muted:#637080;--line:#dce3ea;--blue:#246da8;--panel:#fff;--bg:#f2f5f8}
+    *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 system-ui,-apple-system,"Segoe UI",sans-serif}
+    main{max-width:1280px;margin:0 auto;padding:24px 18px 48px}h1{margin:0 0 4px;font-size:26px}h2{margin:0 0 10px;font-size:19px}h3{margin:16px 0 8px;font-size:15px}
+    p{margin:6px 0 12px;color:var(--muted)}.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:18px;margin:14px 0;box-shadow:0 2px 8px #15283a0a}
+    .controls{display:grid;grid-template-columns:repeat(4,minmax(145px,1fr));gap:11px}label{display:flex;flex-direction:column;gap:5px;font-size:13px;font-weight:650;color:#344252}
+    .checkbox-option{grid-column:span 2;display:flex;align-items:center;gap:9px;padding:8px 10px;background:#f5f8fb;border-radius:7px}.checkbox-option input{width:auto;margin:0}
+    input,select,textarea{width:100%;border:1px solid #c6d0da;border-radius:7px;padding:9px 10px;color:var(--ink);background:white;font:inherit}textarea{grid-column:span 2;min-height:68px;resize:vertical}
+    .actions,.playback{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:14px}button{cursor:pointer;border:0;border-radius:8px;background:var(--blue);color:white;padding:10px 16px;font:600 14px system-ui,sans-serif}button.secondary{background:#e7edf3;color:#263646}button:disabled{cursor:wait;opacity:.55}
+    progress{width:min(300px,42vw);height:12px;accent-color:var(--blue)}#status{color:var(--muted);font-size:13px}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:14px}.metric{padding:10px 12px;background:#f5f8fb;border-radius:8px}.metric b{display:block;font-size:20px}.metric span{color:var(--muted);font-size:12px}
+    canvas.chart{display:block;width:100%;height:auto;border:1px solid #e1e7ec;border-radius:8px;background:white}#roadCanvas{background:#fbfcfd}.playback input[type=range]{flex:1;min-width:180px;padding:0}.playback select{width:auto}.playback button{flex:0 0 auto;min-width:82px}.graph-panel{margin:14px 0}.graph-toolbar{display:flex;justify-content:flex-end;align-items:center;margin-bottom:8px;padding:9px 12px;background:white;border:1px solid var(--line);border-radius:10px}.graph-toolbar label{display:flex;flex-direction:row;align-items:center;gap:8px}.graph-toolbar select{width:auto;min-width:120px}
+    .legend{display:flex;align-items:center;flex-wrap:wrap;gap:8px 16px;color:var(--muted);font-size:12px;margin:10px 0}.key{display:inline-block;width:11px;height:11px;border-radius:50%;margin-right:5px;vertical-align:-1px}.small{font-size:12px}.subtle{color:var(--muted);font-size:13px}
+    table{width:100%;border-collapse:collapse;margin-top:8px;font-size:14px}th,td{text-align:left;padding:9px 10px;border-bottom:1px solid var(--line)}th{background:#f5f8fb;color:#435061}td:first-child{font-weight:650}
+    .two-col{display:grid;grid-template-columns:1fr 1fr;gap:14px}.hint{padding:10px 12px;background:#f5f8fb;border-radius:8px;color:#4e5c6b;font-size:13px}
+    code{background:#eef2f6;border-radius:4px;padding:1px 4px}@media(max-width:850px){.controls{grid-template-columns:repeat(2,minmax(130px,1fr))}.metrics{grid-template-columns:repeat(2,1fr)}.two-col{grid-template-columns:1fr}}
+    @media(max-width:480px){main{padding:14px 10px 30px}.card{padding:13px}h1{font-size:22px}textarea{grid-column:span 2}}
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>バス運行シミュレーター</h1>
+    <p>一般車両と複数のバスを同じ道路で走らせ、バスの停車・所要時間・速度を確認します。</p>
+  </header>
+  <section class="card">
+    <h2>シミュレーション条件</h2>
+    <div class="controls">
+      <label>道路長 (m)<input id="roadLength" type="number" min="500" step="100" value="3000"></label>
+      <label>一般車両の最大同時台数<input id="nCars" type="number" min="2" max="1000" step="1" value="300"></label>
+      <label>初期の一般車両台数<input id="initialCars" type="number" min="0" step="1" value="180"></label>
+      <label>左からの流入量 (台/分)<input id="inflowRate" type="number" min="0" step="1" value="30"></label>
+      <label>乱数シード<input id="seed" type="number" min="0" step="1" value="42"></label>
+      <label>バスの台数<input id="nBuses" type="number" min="1" max="8" step="1" value="2"></label>
+      <label>バスの発車間隔 (s)<input id="headway" type="number" min="10" step="10" value="180"></label>
+      <label>一人当たり乗降時間 t (s/人)<input id="passengerTime" type="number" min="0.1" step="0.1" value="3"></label>
+      <label>バスの定員 (人)<input id="passengerCapacity" type="number" min="1" step="1" value="80"></label>
+      <label>停留所の飛ばし方 (全バス共通)<select id="skipStops"><option value="0" selected>なし（全て停車）</option><option value="1">1個飛ばし（終点は停車）</option><option value="2">2個飛ばし（終点は停車）</option></select></label>
+      <label>乗客の到着予定 (1行1組)<textarea id="passengerRequests" placeholder="乗車停留所,降車停留所,到着時刻(s),人数&#10;例: 1, 4, 300, 12"></textarea></label>
+      <label class="checkbox-option"><input id="randomPassengers" type="checkbox" checked>ランダムな乗客グループを追加</label>
+      <label>ランダムグループ数<input id="randomGroups" type="number" min="0" step="1" value="40"></label>
+      <label>1グループの最大人数<input id="randomGroupMax" type="number" min="1" step="1" value="8"></label>
+      <label>最大速度 (m/s)<input id="vmax" type="number" min="1" step="0.1" value="13.9"></label>
+      <label>OV関数 d (m)<input id="d" type="number" min="0.1" step="0.1" value="12.1"></label>
+      <label>OV関数 ω (m)<input id="omega" type="number" min="0.1" step="0.1" value="7.7"></label>
+      <label>一般車両の反応係数 a (1/s)<input id="carA" type="number" min="0.01" step="0.05" value="1.0"></label>
+      <label>バスの反応係数 a (1/s)<input id="busA" type="number" min="0.01" step="0.05" value="0.8"></label>
+      <label>バス最大加速度 (m/s²)<input id="maxAccel" type="number" min="0.05" step="0.1" value="1"></label>
+      <label>減速度設定 β (m/s²)<input id="braking" type="number" min="0.05" step="0.1" value="1"></label>
+      <label>最初のバスの計算上限時間 (s)<input id="maxDuration" type="number" min="60" step="30" value="3600"></label>
+      <label>計算刻み Δt (s)<input id="dt" type="number" min="0.02" max="0.5" step="0.02" value="0.1"></label>
+      <label>動画の早送り<select id="playback"><option value="1">1倍</option><option value="2">2倍</option><option value="4">4倍</option><option value="8" selected>8倍</option></select></label>
+      <label>停留所の位置 (m、カンマ区切り)<textarea id="stops">500, 1000, 1500, 2000, 2500, 3000</textarea></label>
+    </div>
+    <p class="small">乗客欄は「乗車停留所番号, 降車停留所番号, 到着時刻(s), 人数」の順で入力します。停留所番号は上の停留所一覧の順（1始まり）です。ランダム設定を有効にすると、停留所・到着時刻・人数をランダムに決めたグループを手入力分に追加します。停車時間は <b>t × (A + B)</b> 秒です（A=乗車人数、B=降車人数）。停車中に到着した人も乗車でき、その人数分だけ停車時間を延長します。一般車両は設定した初期台数を乱数で配置し、その後は指定した平均流入量で左から流入します。</p>
+    <div class="actions"><button id="run">実行</button><button id="saveVideo" class="secondary" disabled>動画を保存 (WebM)</button><progress id="progress" max="100" value="0"></progress><span id="status">条件を設定して実行してください。</span></div>
+    <div class="metrics" id="metrics" hidden>
+      <div class="metric"><b id="simTime">—</b><span>計算できた時間</span></div>
+      <div class="metric"><b id="stopCount">—</b><span>各バスの停車数 / 全停留所</span></div>
+      <div class="metric"><b id="completedCount">—</b><span>全停留所を通過したバス</span></div>
+      <div class="metric"><b id="frameCount">—</b><span>保存した計算フレーム</span></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>道路上の動き</h2>
+    <p class="small">左端から一般車両が流入し、右端から退出します。丸は一般車両、色付きの四角はバス、縦線とラベルは停留所です。ラベルにはその時点の待ち人数を表示します。</p>
+    <canvas id="road" class="chart" width="1200" height="205"></canvas>
+    <div class="legend" id="roadLegend"></div>
+    <div class="playback"><button id="toggle" class="secondary" disabled>再生</button><input id="scrub" type="range" min="0" max="0" value="0" disabled><span id="clock">0.0 s</span></div>
+    <div class="metrics" id="passengerMetrics" hidden><div class="metric"><b id="currentBusLoad">—</b><span>選択バスの乗車人数 / 定員</span></div><div class="metric"><b id="currentCrowding">—</b><span>選択バスの現在の混雑率</span></div></div>
+    <div class="metrics" id="busTransportList" hidden></div>
+  </section>
+
+  <section class="card">
+    <h2>バスの位置 — 停留所に着く時刻と停車時間</h2>
+    <p class="hint">横軸は時間、縦軸は道路上の位置です。点線が停留所です。線が横に伸びている区間は、バスがその場で停車しています。</p>
+    <canvas id="positionGraph" class="chart" width="1200" height="350"></canvas>
+    <div class="legend" id="busLegend"></div>
+  </section>
+
+  <section class="graph-panel">
+    <div class="graph-toolbar"><label class="subtle">グラフに表示するバス<select id="busSelect" disabled></select></label></div>
+    <div class="two-col">
+    <div class="card"><h2>選択したバスの速度</h2><p class="small">青線は選択バス、灰色の点線は一般車両の平均速度です。停車中は速度が0になります。</p><canvas id="speedGraph" class="chart" width="900" height="310"></canvas></div>
+    <div class="card"><h2>選択したバスの加速度</h2><p class="small">プラスは加速、マイナスは減速です。単位はm/s²です。</p><canvas id="accGraph" class="chart" width="900" height="310"></canvas></div>
+    </div>
+  </section>
+
+  <section class="card"><h2>一般車両の交通状態</h2><p class="small">密度は道路内の一般車両数を道路長で割った値（台/km）、平均速度はその時点で道路内にいる一般車両の平均です。</p><div class="two-col"><div><h3>一般車両の密度</h3><canvas id="densityGraph" class="chart" width="900" height="300"></canvas></div><div><h3>一般車両の平均速度</h3><canvas id="trafficSpeedGraph" class="chart" width="900" height="300"></canvas></div></div></section>
+
+  <section class="card"><h2>乗客の混雑率と輸送量</h2><p class="small">混雑率は選択中のバスの乗車人数÷定員です。輸送量グラフは、目的地まで運んだ全体累計と各バスの累計を表示します。定員を超える乗客は停留所で待ち、後続バスに乗ります。現在時点の輸送人数は道路アニメーションの下に表示します。</p><div class="two-col"><div><h3>バスの混雑率</h3><canvas id="crowdingGraph" class="chart" width="900" height="300"></canvas></div><div><h3>累積輸送人数（全体・バス別）</h3><canvas id="transportGraph" class="chart" width="900" height="300"></canvas><div class="legend" id="transportLegend"></div></div></div></section>
+
+  <section class="card"><h2>各バスの運行結果</h2><p class="small">所要時間は各バスの発車時刻から、最後の停留所で運行を終えるまでです。</p><div id="resultsTable" class="subtle">シミュレーション実行後に表示します。</div></section>
+  <section class="card small"><b>モデルの概要</b><p>一般車両は開放境界の片側道路を走り、左端からランダムな時刻で流入して右端から退出します。車両数は設定台数を上限とします。バスの加速度は「前方車に対するOV加速度」と「最大加速度」の小さい方を使い、停留所手前では停止距離に応じて減速します。</p><p><code>aᵢ = a [V(gᵢ) − vᵢ]</code>　<code>V(g)=Vmax [tanh((g−d)/ω)+tanh(d/ω)]/[1+tanh(d/ω)]</code></p></section>
+</main>
+<script>
+(()=>{
+  const $=id=>document.getElementById(id), run=$('run'), toggle=$('toggle'), save=$('saveVideo'), progress=$('progress'), status=$('status');
+  const road=$('road'), roadCtx=road.getContext('2d');
+  const colors=['#2563a6','#e4572e','#2f8f57','#8b62a8','#d19a18','#247f89','#b14e77','#64748b'];
+  let sim=null,timeNow=0,playing=false,lastTime=0,lastGraphDraw=0,rate=4,recorder=null,chunks=[],recording=false;
+
+  function paramsFromForm(){
+    const p={L:+$('roadLength').value,nCars:Math.floor(+$('nCars').value),initialCars:Math.floor(+$('initialCars').value),inflowRate:+$('inflowRate').value,seed:Math.floor(+$('seed').value),nBuses:Math.floor(+$('nBuses').value),headway:+$('headway').value,passengerTime:+$('passengerTime').value,passengerCapacity:Math.floor(+$('passengerCapacity').value),randomPassengers:$('randomPassengers').checked,randomGroups:Math.floor(+$('randomGroups').value),randomGroupMax:Math.floor(+$('randomGroupMax').value),passengerText:$('passengerRequests').value,skipStops:Math.floor(+$('skipStops').value),vmax:+$('vmax').value,d:+$('d').value,omega:+$('omega').value,carA:+$('carA').value,busA:+$('busA').value,maxAccel:+$('maxAccel').value,beta:+$('braking').value,maxDuration:+$('maxDuration').value,dt:+$('dt').value,playback:+$('playback').value,carLength:4.5,busLength:12};
+    for(const [k,v] of Object.entries(p))if(typeof v==='number'&&!Number.isFinite(v))throw Error(`${k} に有効な数値を入力してください。`);
+    if(p.L<=0||p.nCars<2||p.initialCars<0||p.initialCars>p.nCars||p.nBuses<1||p.nBuses>8||p.inflowRate<0||p.seed<0||p.nCars*p.carLength>=p.L||p.initialCars*p.carLength>=p.L||p.headway<=0||p.passengerTime<=0||p.passengerCapacity<1||p.randomGroups<0||p.randomGroupMax<1||p.vmax<=0||p.d<=0||p.omega<=0||p.carA<=0||p.busA<=0||p.maxAccel<=0||p.beta<=0||p.maxDuration<=0||p.dt<0.02||p.dt>0.5)throw Error('台数、道路長、流入量、乗客数、速度や加速度などの値を確認してください。');
+    p.stops=$('stops').value.split(',').map(s=>Number(s.trim())).filter(Number.isFinite);
+    if(!p.stops.length||p.stops.some((s,i)=>s<0||s>p.L||(i>0&&s<=p.stops[i-1])))throw Error('停留所は道路範囲内に、昇順でカンマ区切り入力してください。');
+    p.endTime=p.maxDuration+Math.max(0,p.nBuses-1)*p.headway;
+    if(p.endTime/p.dt>300000)throw Error('計算ステップが多すぎます。計算時間か刻み幅を調整してください。');
+    return p;
+  }
+  const opt=(gap,p)=>{const g=Math.max(gap,0),off=Math.tanh(p.d/p.omega);return Math.max(0,p.vmax*(Math.tanh((g-p.d)/p.omega)+off)/(1+off));};
+  const argsort=a=>Array.from({length:a.length},(_,i)=>i).sort((i,j)=>a[i]-a[j]);
+  function makeRng(seed){let x=(seed>>>0)||1;return()=>{x+=0x6D2B79F5;let t=x;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;};}
+  function passengerRequests(p,servedStopIndices){
+    const served=new Set(servedStopIndices),requests=[];
+    for(const [lineNo,line] of p.passengerText.split(/\r?\n/).entries()){
+      const row=line.trim();if(!row||row.startsWith('#'))continue;
+      const fields=row.split(/[\t,]/).map(s=>s.trim());if(fields.length!==4)throw Error(`乗客欄の${lineNo+1}行目は「乗車停留所,降車停留所,到着時刻,人数」の4項目で入力してください。`);
+      const [originNo,destinationNo,time,count]=fields.map(Number);
+      if(!Number.isInteger(originNo)||!Number.isInteger(destinationNo)||!Number.isFinite(time)||!Number.isInteger(count)||time<0||count<1||originNo<1||destinationNo>p.stops.length||destinationNo<=originNo)throw Error(`乗客欄の${lineNo+1}行目の停留所番号・時刻・人数を確認してください。`);
+      const origin=originNo-1,destination=destinationNo-1;
+      if(!served.has(origin)||!served.has(destination))throw Error(`乗客欄の${lineNo+1}行目に指定した停留所は、停留所飛ばし設定で通過されます。`);
+      requests.push({origin,destination,time,count,remaining:count});
+    }
+    if(p.randomPassengers&&p.randomGroups>0){
+      if(servedStopIndices.length<2&&p.randomGroups>0)throw Error('ランダム乗客を作るには、停車する停留所が2か所以上必要です。');
+      const random=makeRng((p.seed^0x9e3779b9)>>>0);
+      const arrivalHorizon=(p.nBuses-1)*p.headway+2*p.L/p.vmax+p.stops.length*p.passengerTime*p.randomGroupMax;
+      for(let i=0;i<p.randomGroups;i++){const oi=Math.floor(random()*(servedStopIndices.length-1)),di=oi+1+Math.floor(random()*(servedStopIndices.length-oi-1));const count=1+Math.floor(random()*p.randomGroupMax);requests.push({origin:servedStopIndices[oi],destination:servedStopIndices[di],time:random()*arrivalHorizon,count,remaining:count});}
+    }
+    return requests.sort((a,b)=>a.time-b.time);
+  }
+
+  async function calculate(p,onProgress){
+    const n=p.nCars,nb=p.nBuses,steps=Math.floor(p.endTime/p.dt)+1;
+    const rng=makeRng(p.seed),cx=new Float64Array(n).fill(NaN),cv=new Float64Array(n).fill(NaN),ca=new Float64Array(n),active=new Uint8Array(n);
+    const initialCount=p.initialCars,usable=p.L-initialCount*p.carLength;
+    const gaps=Array.from({length:initialCount+1},()=>-Math.log(Math.max(rng(),1e-12))),sum=gaps.reduce((a,b)=>a+b,0);
+    let x=p.carLength/2+gaps[0]/sum*usable;
+    for(let i=0;i<initialCount;i++){const id=i;cx[id]=x;cv[id]=rng()*0.35*p.vmax;active[id]=1;x+=p.carLength+gaps[i+1]/sum*usable;}
+    let pending=0,nextArrival=p.inflowRate>0?-Math.log(Math.max(rng(),1e-12))*60/p.inflowRate:Infinity;
+    const busX=new Float64Array(nb).fill(NaN),busV=new Float64Array(nb),busA=new Float64Array(nb),mode=Array(nb).fill('scheduled');
+    const servedStopIndices=Array.from({length:p.stops.length},(_,i)=>i).filter(i=>i%(p.skipStops+1)===0||i===p.stops.length-1);
+    const passengerPlan=passengerRequests(p,servedStopIndices),manifest=Array.from({length:nb},()=>new Uint32Array(p.stops.length)),busLoads=new Uint32Array(nb),waitingByStop=new Uint32Array(p.stops.length);
+    let passengerArrivalCursor=0;
+    const addArrivedPassengers=now=>{while(passengerArrivalCursor<passengerPlan.length&&passengerPlan[passengerArrivalCursor].time<=now+1e-9){const request=passengerPlan[passengerArrivalCursor++];waitingByStop[request.origin]+=request.count;}};
+    const transportedByBus=new Uint32Array(nb);
+    const servePassengers=(bus,stop,now)=>{
+      const alighting=manifest[bus][stop];transportedByBus[bus]+=alighting;manifest[bus][stop]=0;busLoads[bus]=Math.max(0,busLoads[bus]-alighting);
+      let occupied=busLoads[bus],boarded=0;
+      for(const request of passengerPlan){if(request.origin!==stop||request.time>now+1e-9||request.remaining<=0)continue;const boarding=Math.min(request.remaining,p.passengerCapacity-occupied);if(boarding<=0)break;request.remaining-=boarding;waitingByStop[stop]=Math.max(0,waitingByStop[stop]-boarding);manifest[bus][request.destination]+=boarding;occupied+=boarding;boarded+=boarding;}
+      busLoads[bus]=occupied;return{boarded,alighting};
+    };
+    const stopI=new Int32Array(nb),dwellLeft=new Float64Array(nb),startTimes=Array.from({length:nb},(_,i)=>i*p.headway);
+    busX[0]=0;mode[0]=p.stops.length?'moving':'finished';
+    const positions=[],speeds=[],bPositions=[],bSpeeds=[],bAcc=[],bStates=[],times=[],density=[],meanSpeed=[],carCounts=[],queues=[],loadHistory=[],transportHistory=[],waitingHistory=[];
+    const save=t=>{const px=new Float32Array(n).fill(NaN),pv=new Float32Array(n).fill(NaN);let count=0,total=0;for(let i=0;i<n;i++)if(active[i]){px[i]=cx[i];pv[i]=cv[i];count++;total+=cv[i];}times.push(t);positions.push(px);speeds.push(pv);bPositions.push(Float32Array.from(busX));bSpeeds.push(Float32Array.from(busV,(v,i)=>['scheduled','finished'].includes(mode[i])?NaN:v));bAcc.push(Float32Array.from(busA,(v,i)=>['scheduled','finished'].includes(mode[i])?NaN:v));bStates.push(mode.map(m=>({scheduled:0,moving:1,dwell:2,finished:3}[m])));density.push(count/p.L*1000);meanSpeed.push(count?total/count*3.6:0);carCounts.push(count);queues.push(pending);loadHistory.push(Uint16Array.from(busLoads));transportHistory.push(Uint32Array.from(transportedByBus));waitingHistory.push(Uint32Array.from(waitingByStop));};
+    addArrivedPassengers(0);
+    save(0);let completed=false,lastMode=mode.slice(),reportEvery=Math.max(1,Math.floor(steps/100));
+    for(let k=1;k<steps;k++){
+      const now=k*p.dt;lastMode=mode.slice();
+      addArrivedPassengers(now);
+      for(let b=0;b<nb;b++)if(mode[b]==='scheduled'&&now+1e-9>=startTimes[b]){busX[b]=0;stopI[b]=p.stops.findIndex(s=>s>=0);mode[b]=stopI[b]>=0?'moving':'finished';}
+      while(nextArrival<=now+1e-9){pending++;nextArrival+=-Math.log(Math.max(rng(),1e-12))*60/p.inflowRate;}
+      const ids=Array.from({length:n},(_,i)=>i).filter(i=>active[i]).sort((a,b)=>cx[a]-cx[b]);
+      ca.fill(0);
+      for(let j=0;j<ids.length;j++){const i=ids[j],leader=ids[j+1];let nearest=leader===undefined?Infinity:cx[leader]-cx[i],leaderLength=p.carLength;for(let b=0;b<nb;b++)if(mode[b]==='moving'&&busX[b]>cx[i]&&busX[b]-cx[i]<nearest){nearest=busX[b]-cx[i];leaderLength=p.busLength;}const target=Number.isFinite(nearest)?opt(nearest-leaderLength,p):p.vmax;ca[i]=p.carA*(target-cv[i]);}
+      for(const i of ids){cv[i]=Math.max(0,cv[i]+ca[i]*p.dt);cx[i]+=cv[i]*p.dt;if(cx[i]>p.L+p.carLength/2){active[i]=0;cx[i]=NaN;cv[i]=NaN;}}
+      while(pending>0){const slot=active.findIndex(v=>!v);if(slot<0)break;let front=Infinity;for(let i=0;i<n;i++)if(active[i]&&cx[i]<front)front=cx[i];const entry=p.carLength/2;if(Number.isFinite(front)&&front-entry<p.carLength+Math.max(p.d,2))break;active[slot]=1;cx[slot]=entry;cv[slot]=rng()*0.25*p.vmax;pending--;}
+
+      busA.fill(0);
+      for(let b=0;b<nb;b++){
+        if(mode[b]==='scheduled'||mode[b]==='finished')continue;
+        if(mode[b]==='dwell'){
+          const transfer=servePassengers(b,servedStopIndices[stopI[b]],now);dwellLeft[b]+=transfer.boarded*p.passengerTime;
+          busV[b]=0;dwellLeft[b]-=p.dt;
+          if(dwellLeft[b]<=0){stopI[b]++;if(stopI[b]>=servedStopIndices.length){busX[b]=p.stops[p.stops.length-1];mode[b]='finished';}else mode[b]='moving';}
+          continue;
+        }
+        const bx=busX[b];let nearest=Infinity,leaderLength=p.carLength;
+        for(let i=0;i<n;i++)if(active[i]&&cx[i]>bx){const dist=cx[i]-bx;if(dist<nearest)nearest=dist;}
+        for(let other=0;other<nb;other++)if(other!==b&&Number.isFinite(busX[other])&&busX[other]>bx&&!['scheduled','finished'].includes(mode[other])){const dist=busX[other]-bx;if(dist<nearest){nearest=dist;leaderLength=p.busLength;}}
+        const busGap=Number.isFinite(nearest)?nearest-leaderLength:p.L;
+        let accel=Math.min(p.busA*(opt(busGap,p)-busV[b]),p.maxAccel);
+        const actualStop=p.stops[servedStopIndices[stopI[b]]],remaining=actualStop-bx;
+        if(remaining>0&&busV[b]>0){const stoppingDistance=busV[b]*busV[b]/(2*p.beta);if(stoppingDistance>=remaining)accel=Math.min(accel,-busV[b]*busV[b]/(2*remaining));}
+        busA[b]=accel;busV[b]=Math.max(0,busV[b]+accel*p.dt);busX[b]+=busV[b]*p.dt;
+        if((actualStop-busX[b]<=0.5&&busV[b]<=0.2)||busX[b]>=actualStop){busX[b]=actualStop;busV[b]=0;const transfer=servePassengers(b,servedStopIndices[stopI[b]],now);dwellLeft[b]=p.passengerTime*(transfer.boarded+transfer.alighting);if(dwellLeft[b]>0)mode[b]='dwell';else if(stopI[b]+1>=servedStopIndices.length)mode[b]='finished';else{stopI[b]++;mode[b]='moving';}busA[b]=0;}
+      }
+      completed=mode.every(m=>m==='finished');
+      if(k%1===0)save(now);
+      if(k%reportEvery===0){onProgress(k/steps);await new Promise(resolve=>setTimeout(resolve,0));}
+      if(completed)break;
+    }
+    const frames=times.length;
+    const crowding=Array.from({length:nb},(_,b)=>Float32Array.from(loadHistory,loads=>100*loads[b]/p.passengerCapacity));
+    const transportedByBusHistory=Array.from({length:nb},(_,b)=>Float64Array.from(transportHistory,row=>row[b]));
+    const transportedTotal=Float64Array.from(transportHistory,row=>row.reduce((sum,value)=>sum+value,0));
+    return{p,frames,times:Float32Array.from(times),carX:join(positions,n),carV:join(speeds,n),density:Float32Array.from(density),meanCarSpeed:Float32Array.from(meanSpeed),carCount:Uint16Array.from(carCounts),queueCount:Uint16Array.from(queues),busLoad:join(loadHistory,nb,Uint16Array),crowding,transportedByBus:transportedByBusHistory,transportedTotal,waitingAtStops:join(waitingHistory,p.stops.length,Uint32Array),passengerRequestCount:passengerPlan.length,busX:join(bPositions,nb),busV:join(bSpeeds,nb),busA:join(bAcc,nb),busState:join(bStates,nb,Uint8Array),startTimes:Float64Array.from(startTimes),initialCount,completed};
+  }
+  function join(rows,width,Type=Float32Array){const out=new Type(rows.length*width);for(let i=0;i<rows.length;i++)out.set(rows[i],i*width);return out;}
+
+  function axes(ctx,W,H,m={l:66,r:25,t:20,b:40}){ctx.clearRect(0,0,W,H);ctx.fillStyle='#fff';ctx.fillRect(0,0,W,H);ctx.strokeStyle='#cbd4dd';ctx.beginPath();ctx.moveTo(m.l,m.t);ctx.lineTo(m.l,H-m.b);ctx.lineTo(W-m.r,H-m.b);ctx.stroke();return{...m,pw:W-m.l-m.r,ph:H-m.t-m.b};}
+  function fmtTime(t){return t<60?`${t.toFixed(0)} s`:`${(t/60).toFixed(1)} min`;}
+  function displayDuration(){return Math.max(sim.times[sim.frames-1],sim.p.dt);}
+  function drawRoad(){
+    if(!sim)return;const W=road.width,H=road.height,ctx=roadCtx;ctx.clearRect(0,0,W,H);ctx.fillStyle='#fbfcfd';ctx.fillRect(0,0,W,H);
+    const left=65,right=W-25,span=right-left,sel=Math.min(Math.floor(timeNow/sim.p.dt),sim.frames-1),base=sel*sim.p.nCars,bbase=sel*sim.p.nBuses;
+    const laneY=110;ctx.font='13px system-ui';ctx.textAlign='right';ctx.fillStyle='#596675';ctx.fillText('流入 →',left-10,laneY+4);ctx.textAlign='left';ctx.fillText('退出 →',right+5,laneY+4);
+    ctx.strokeStyle='#b5bec7';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(left,laneY);ctx.lineTo(right,laneY);ctx.stroke();
+    const labelEnds=[-Infinity,-Infinity];
+    for(let s=0;s<sim.p.stops.length;s++){const stop=sim.p.stops[s],x=left+span*stop/sim.p.L;ctx.strokeStyle='#8b949e';ctx.setLineDash([3,4]);ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,45);ctx.lineTo(x,170);ctx.stroke();ctx.setLineDash([]);const waiting=sim.waitingAtStops[sel*sim.p.stops.length+s],label=`S${s+1}: ${waiting}人`,w=ctx.measureText(label).width+12,boxLeft=Math.max(left,Math.min(right-w,x-w/2));let row=labelEnds.findIndex(end=>boxLeft>end+4);if(row<0)row=s%2;labelEnds[row]=boxLeft+w;const y=47+row*25;ctx.fillStyle=waiting?'#fff0c2':'#fff';ctx.strokeStyle=waiting?'#dfa52d':'#cbd4dd';ctx.lineWidth=1;ctx.beginPath();ctx.roundRect(boxLeft,y,w,20,6);ctx.fill();ctx.stroke();ctx.fillStyle=waiting?'#704b00':'#586575';ctx.font='bold 11px system-ui';ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillText(label,boxLeft+w/2,y+10);ctx.textBaseline='alphabetic';}
+    for(let i=0;i<sim.p.nCars;i++){const x=sim.carX[base+i],v=sim.carV[base+i];if(!Number.isFinite(x))continue;const px=left+span*x/sim.p.L,color=`hsl(${120*Math.max(0,Math.min(1,v/sim.p.vmax))},82%,43%)`;ctx.beginPath();ctx.fillStyle=color;ctx.arc(px,laneY,4,0,Math.PI*2);ctx.fill();}
+    for(let b=0;b<sim.p.nBuses;b++){const x=sim.busX[bbase+b],state=sim.busState[bbase+b];if(!Number.isFinite(x))continue;const px=left+span*x/sim.p.L;ctx.fillStyle='#fff';ctx.fillRect(px-8,laneY-8,16,16);ctx.fillStyle=colors[b%colors.length];ctx.fillRect(px-6,laneY-6,12,12);if(state===2){ctx.strokeStyle='#e48918';ctx.lineWidth=2;ctx.beginPath();ctx.arc(px,laneY,10,0,2*Math.PI);ctx.stroke();}}
+    ctx.textAlign='left';ctx.fillStyle='#596675';ctx.fillText('0 m（流入）',left,193);ctx.textAlign='right';ctx.fillText(`${sim.p.L.toLocaleString()} m（退出）`,right,193);ctx.textAlign='left';ctx.fillStyle='#24313e';ctx.font='bold 14px system-ui';ctx.fillText(`時刻 ${fmtTime(timeNow)}　|　道路内 ${sim.carCount[sel]} 台　|　待ち ${sim.queueCount[sel]} 台　|　色: 赤=低速、緑=高速`,left,20);
+    const selectedBus=Math.min(sim.p.nBuses-1,Math.max(0,+$('busSelect').value||0)),load=sim.busLoad[sel*sim.p.nBuses+selectedBus]||0;
+    $('currentBusLoad').textContent=`${load} / ${sim.p.passengerCapacity} 人`;$('currentCrowding').textContent=`${(100*load/sim.p.passengerCapacity).toFixed(1)} %`;
+    $('transportTotal').textContent=`${sim.transportedTotal[sel].toLocaleString()} 人`;
+    for(let b=0;b<sim.p.nBuses;b++)$(`transportBus${b}`).textContent=`${sim.transportedByBus[b][sel].toLocaleString()} 人`;
+    $('clock').textContent=`${fmtTime(timeNow)} / ${fmtTime(sim.times[sim.frames-1])}`;$('scrub').value=String(sel);
+  }
+  function drawPosition(){
+    const c=$('positionGraph'),ctx=c.getContext('2d'),W=c.width,H=c.height,a=axes(ctx,W,H),duration=displayDuration(),start=0;
+    ctx.save();ctx.beginPath();ctx.rect(a.l,a.t,a.pw,a.ph);ctx.clip();
+    for(let s=0;s<sim.p.stops.length;s++){const y=a.t+a.ph*(1-sim.p.stops[s]/sim.p.L);ctx.strokeStyle='#a6afb8';ctx.setLineDash([3,5]);ctx.beginPath();ctx.moveTo(a.l,y);ctx.lineTo(W-a.r,y);ctx.stroke();ctx.setLineDash([]);ctx.fillStyle='#737f8c';ctx.font='11px system-ui';ctx.textAlign='left';ctx.fillText(`S${s+1}`,a.l+4,y-3);}
+    const visibleFrames=sim.frames,stride=Math.max(1,Math.floor(visibleFrames/2500));
+    for(let b=0;b<sim.p.nBuses;b++){ctx.beginPath();ctx.strokeStyle=colors[b%colors.length];ctx.lineWidth=2.2;let started=false;for(let f=0;f<sim.frames;f+=stride){const x=sim.times[f]-start,pos=sim.busX[f*sim.p.nBuses+b];if(!Number.isFinite(pos)){started=false;continue;}const px=a.l+a.pw*x/duration,py=a.t+a.ph*(1-pos/sim.p.L);if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py);}ctx.stroke();}
+    ctx.restore();labelTimeAxis(ctx,a,W,H,duration);ctx.textAlign='right';ctx.font='12px system-ui';ctx.fillStyle='#5c6876';for(let i=0;i<=4;i++){const pos=sim.p.L*(1-i/4),y=a.t+a.ph*i/4;ctx.fillText(`${pos.toFixed(0)} m`,a.l-8,y+4);}
+    ctx.save();ctx.translate(18,a.t+a.ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText('バス位置 (m)',0,0);ctx.restore();
+    ctx.strokeStyle='#d43d36';ctx.setLineDash([4,4]);const cursor=a.l+a.pw*Math.max(0,Math.min(duration,timeNow-start))/duration;ctx.beginPath();ctx.moveTo(cursor,a.t);ctx.lineTo(cursor,H-a.b);ctx.stroke();ctx.setLineDash([]);
+  }
+  function drawBusSignals(canvasId,which){
+    const c=$(canvasId),ctx=c.getContext('2d'),W=c.width,H=c.height,a=axes(ctx,W,H,{l:62,r:25,t:22,b:38}),duration=displayDuration(),start=0,b=+$('busSelect').value,nb=sim.p.nBuses,thresholdSpeed=13.9;
+    const values=which==='speed'?sim.busV:sim.busA,carValues=which==='speed'?sim.carV:null;
+    let vmax=which==='speed'?Math.max(15,sim.p.vmax*3.6):4.0;if(which==='acc'){let abs=1;for(let f=0;f<sim.frames;f++){const v=values[f*nb+b];if(Number.isFinite(v))abs=Math.max(abs,Math.abs(v));}vmax=Math.ceil(abs*2)/2;}
+    const factor=which==='speed'?3.6:1, yAt=v=>which==='speed'
+      ?a.t+a.ph*(1-v*factor/vmax)
+      :a.t+a.ph*(1-(v+vmax)/(2*vmax));
+    if(which==='speed'){
+      ctx.save();ctx.beginPath();ctx.rect(a.l,a.t,a.pw,a.ph);ctx.clip();
+      let wasDwell=false,dwellStart=0;for(let f=0;f<sim.frames;f++){const dwell=sim.busState[f*nb+b]===2;if(dwell&&!wasDwell)dwellStart=sim.times[f];if(!dwell&&wasDwell){const x1=a.l+a.pw*(dwellStart-start)/duration,x2=a.l+a.pw*(sim.times[f]-start)/duration;ctx.fillStyle='#fff1d6';ctx.fillRect(x1,a.t,x2-x1,a.ph);}wasDwell=dwell;}if(wasDwell){const x1=a.l+a.pw*(dwellStart-start)/duration;ctx.fillRect(x1,a.t,a.l+a.pw-x1,a.ph);}
+      let stride=Math.max(1,Math.floor(sim.frames/2500));
+      ctx.beginPath();ctx.strokeStyle='#394b5d';ctx.lineWidth=1.4;let started=false;for(let f=0;f<sim.frames;f+=stride){let total=0,count=0;for(let i=0;i<sim.p.nCars;i++){const v=sim.carV[f*sim.p.nCars+i];if(Number.isFinite(v)){total+=v;count++;}}const px=a.l+a.pw*(sim.times[f]-start)/duration,py=yAt(count?total/count:0);if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py);}ctx.stroke();
+      ctx.beginPath();ctx.strokeStyle=colors[b%colors.length];ctx.lineWidth=2.3;started=false;for(let f=0;f<sim.frames;f+=stride){const v=values[f*nb+b];if(!Number.isFinite(v)){started=false;continue;}const px=a.l+a.pw*(sim.times[f]-start)/duration,py=yAt(v);if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py);}ctx.stroke();ctx.restore();
+    }else{
+      ctx.save();ctx.beginPath();ctx.rect(a.l,a.t,a.pw,a.ph);ctx.clip();let stride=Math.max(1,Math.floor(sim.frames/2500)),started=false;ctx.beginPath();ctx.strokeStyle=colors[b%colors.length];ctx.lineWidth=2;for(let f=0;f<sim.frames;f+=stride){const v=values[f*nb+b];if(!Number.isFinite(v)){started=false;continue;}const px=a.l+a.pw*(sim.times[f]-start)/duration,py=a.t+a.ph*(1-v/vmax)/2;if(!started){ctx.moveTo(px,py);started=true;}else ctx.lineTo(px,py);}ctx.stroke();ctx.restore();ctx.strokeStyle='#8a939d';ctx.setLineDash([5,4]);ctx.beginPath();ctx.moveTo(a.l,a.t+a.ph/2);ctx.lineTo(W-a.r,a.t+a.ph/2);ctx.stroke();ctx.setLineDash([]);
+    }
+    labelTimeAxis(ctx,a,W,H,duration);ctx.fillStyle='#5c6876';ctx.font='12px system-ui';ctx.textAlign='right';for(let i=0;i<=4;i++){const v=which==='speed'?vmax*(1-i/4):vmax*(1-2*i/4),y=a.t+a.ph*i/4;ctx.fillText(which==='speed'?`${Math.max(0,v).toFixed(0)}`:`${v.toFixed(1)}`,a.l-8,y+4);}
+    ctx.save();ctx.translate(17,a.t+a.ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText(which==='speed'?'速度 (km/h)':'加速度 (m/s²)',0,0);ctx.restore();
+    if(which==='speed'){ctx.fillStyle=colors[b%colors.length];ctx.textAlign='left';ctx.fillText(`Bus ${b+1}`,a.l+8,a.t+14);ctx.fillStyle='#394b5d';ctx.fillText('一般車両の平均',a.l+82,a.t+14);ctx.fillStyle='#a66700';ctx.fillText('薄橙 = バス停車中',a.l+250,a.t+14);}else{ctx.fillStyle=colors[b%colors.length];ctx.textAlign='left';ctx.fillText(`Bus ${b+1}`,a.l+8,a.t+14);}
+    const cur=a.l+a.pw*Math.max(0,Math.min(duration,timeNow-start))/duration;ctx.strokeStyle='#d43d36';ctx.setLineDash([4,4]);ctx.beginPath();ctx.moveTo(cur,a.t);ctx.lineTo(cur,H-a.b);ctx.stroke();ctx.setLineDash([]);
+  }
+  function labelTimeAxis(ctx,a,W,H,duration){ctx.fillStyle='#5c6876';ctx.font='12px system-ui';ctx.textAlign='center';for(let i=0;i<=4;i++){const x=a.l+a.pw*i/4;ctx.fillText(fmtTime(duration*i/4),x,H-10);}}
+  function drawTrafficMetric(canvasId,values,yLabel,color,unit,scale){
+    const c=$(canvasId),ctx=c.getContext('2d'),W=c.width,H=c.height,a=axes(ctx,W,H,{l:66,r:25,t:22,b:38}),max=Math.max(1,values.reduce((m,v)=>Math.max(m,v),0))*1.08,duration=Math.max(sim.times[sim.frames-1],sim.p.dt),stride=Math.max(1,Math.floor(sim.frames/3000));
+    ctx.save();ctx.beginPath();ctx.rect(a.l,a.t,a.pw,a.ph);ctx.clip();ctx.beginPath();ctx.strokeStyle=color;ctx.lineWidth=2;let started=false;
+    for(let f=0;f<sim.frames;f+=stride){const x=a.l+a.pw*sim.times[f]/duration,y=a.t+a.ph*(1-values[f]/max);if(!started){ctx.moveTo(x,y);started=true;}else ctx.lineTo(x,y);}ctx.stroke();ctx.strokeStyle='#d43d36';ctx.setLineDash([4,4]);const cur=a.l+a.pw*Math.max(0,Math.min(duration,timeNow))/duration;ctx.beginPath();ctx.moveTo(cur,a.t);ctx.lineTo(cur,H-a.b);ctx.stroke();ctx.restore();ctx.setLineDash([]);
+    labelTimeAxis(ctx,a,W,H,duration);ctx.textAlign='right';ctx.font='12px system-ui';ctx.fillStyle='#5c6876';for(let i=0;i<=4;i++){const v=max*(1-i/4);ctx.fillText(`${(v*scale).toFixed(0)}${unit}`,a.l-8,a.t+a.ph*i/4+4);}ctx.save();ctx.translate(17,a.t+a.ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText(yLabel,0,0);ctx.restore();
+  }
+  function drawTransportGraph(){
+    const c=$('transportGraph'),ctx=c.getContext('2d'),W=c.width,H=c.height,a=axes(ctx,W,H,{l:66,r:25,t:22,b:38});let max=1;
+    for(const series of sim.transportedByBus)for(const value of series)if(value>max)max=value;for(const value of sim.transportedTotal)if(value>max)max=value;max*=1.08;
+    const duration=Math.max(sim.times[sim.frames-1],sim.p.dt),stride=Math.max(1,Math.floor(sim.frames/3000));
+    ctx.save();ctx.beginPath();ctx.rect(a.l,a.t,a.pw,a.ph);ctx.clip();
+    const all=[{values:sim.transportedTotal,color:'#263746',dash:[6,4]},...sim.transportedByBus.map((values,b)=>({values,color:colors[b%colors.length],dash:[]}))];
+    for(const series of all){ctx.beginPath();ctx.strokeStyle=series.color;ctx.lineWidth=series.dash.length?2:1.8;ctx.setLineDash(series.dash);for(let f=0;f<sim.frames;f+=stride){const x=a.l+a.pw*sim.times[f]/duration,y=a.t+a.ph*(1-series.values[f]/max);if(f===0)ctx.moveTo(x,y);else ctx.lineTo(x,y);}ctx.stroke();}
+    ctx.setLineDash([4,4]);ctx.strokeStyle='#d43d36';const cur=a.l+a.pw*Math.max(0,Math.min(duration,timeNow))/duration;ctx.beginPath();ctx.moveTo(cur,a.t);ctx.lineTo(cur,H-a.b);ctx.stroke();ctx.restore();ctx.setLineDash([]);
+    labelTimeAxis(ctx,a,W,H,duration);ctx.textAlign='right';ctx.font='12px system-ui';ctx.fillStyle='#5c6876';for(let i=0;i<=4;i++)ctx.fillText(`${(max*(1-i/4)).toFixed(0)}人`,a.l-8,a.t+a.ph*i/4+4);ctx.save();ctx.translate(17,a.t+a.ph/2);ctx.rotate(-Math.PI/2);ctx.textAlign='center';ctx.fillText('累積輸送人数 (人)',0,0);ctx.restore();
+  }
+  function drawGraphs(){drawPosition();drawBusSignals('speedGraph','speed');drawBusSignals('accGraph','acc');drawTrafficMetric('densityGraph',sim.density,'密度 (台/km)','#2274a5','',1);drawTrafficMetric('trafficSpeedGraph',sim.meanCarSpeed,'平均速度 (km/h)','#2f8f57','',1);const b=+$('busSelect').value;drawTrafficMetric('crowdingGraph',sim.crowding[b],`混雑率 Bus ${b+1} (%)`,colors[b%colors.length],'%',1);drawTransportGraph();}
+  function populateResults(){
+    const p=sim.p,nb=p.nBuses,rows=[];let completed=0;
+    for(let b=0;b<nb;b++){
+      let finish=-1;for(let f=0;f<sim.frames;f++)if(sim.busState[f*nb+b]===3){finish=sim.times[f];break;}
+      if(finish>=0)completed++;
+      rows.push(`<tr><td><span style="color:${colors[b%colors.length]}">●</span> Bus ${b+1}</td><td>${sim.startTimes[b].toFixed(0)} s</td><td>${finish>=0?`${(finish-sim.startTimes[b]).toFixed(1)} s`:'未完了'}</td><td>${finish>=0?'完走':'時間上限までに未完了'}</td></tr>`);
+    }
+    $('resultsTable').innerHTML=`<table><thead><tr><th>バス</th><th>発車時刻</th><th>所要時間</th><th>状態</th></tr></thead><tbody>${rows.join('')}</tbody></table>`;
+    const servedStopCount=Array.from({length:p.stops.length},(_,i)=>i).filter(i=>i%(p.skipStops+1)===0||i===p.stops.length-1).length;
+    $('completedCount').textContent=`${completed} / ${nb} 台`;$('simTime').textContent=fmtTime(sim.times[sim.frames-1]);$('stopCount').textContent=`${servedStopCount} / ${p.stops.length} か所`;$('frameCount').textContent=sim.frames.toLocaleString();$('passengerMetrics').hidden=false;
+    $('busTransportList').innerHTML=`<div class="metric"><b id="transportTotal">0 人</b><span>全バスの累積輸送人数</span></div>`+Array.from({length:nb},(_,b)=>`<div class="metric"><b id="transportBus${b}">0 人</b><span>Bus ${b+1} の累積輸送人数</span></div>`).join('');$('busTransportList').hidden=false;
+    $('busSelect').innerHTML=Array.from({length:nb},(_,b)=>`<option value="${b}">Bus ${b+1}</option>`).join('');$('busSelect').disabled=false;
+    $('busLegend').innerHTML=Array.from({length:nb},(_,b)=>`<span><i class="key" style="background:${colors[b%colors.length]}"></i>Bus ${b+1}</span>`).join('');
+    $('transportLegend').innerHTML='<span><i class="key" style="background:#263746;border-radius:0"></i>全体</span>'+Array.from({length:nb},(_,b)=>`<span><i class="key" style="background:${colors[b%colors.length]};border-radius:0"></i>Bus ${b+1}</span>`).join('');
+    $('roadLegend').innerHTML=Array.from({length:nb},(_,b)=>`<span><i class="key" style="background:${colors[b%colors.length]};border-radius:2px"></i>Bus ${b+1}</span>`).join('')+'<span>● 一般車両（赤=低速、緑=高速）</span><span>◎ 停車中</span><span>流入・退出の矢印は道路両端</span>';
+  }
+  function setTime(t){timeNow=Math.max(0,Math.min(sim.times[sim.frames-1],t));drawRoad();drawGraphs();}
+  function loop(now){requestAnimationFrame(loop);if(!sim)return;if(playing){if(lastTime)timeNow+=(now-lastTime)/1000*rate;if(timeNow>=sim.times[sim.frames-1]){timeNow=sim.times[sim.frames-1];playing=false;toggle.textContent='再生';if(recording)stopRecording();}lastTime=now;}else lastTime=0;drawRoad();if(now-lastGraphDraw>250){drawGraphs();lastGraphDraw=now;}}
+  requestAnimationFrame(loop);
+
+  run.addEventListener('click',async()=>{
+    run.disabled=true;toggle.disabled=true;save.disabled=true;$('busSelect').disabled=true;$('scrub').disabled=true;progress.value=0;status.textContent='計算中…';
+    try{
+      const p=paramsFromForm();rate=p.playback;
+      const result=await calculate(p,v=>{progress.value=v*100;status.textContent=`計算中… ${Math.round(v*100)}%`;});sim=result;timeNow=0;playing=true;
+      populateResults();drawRoad();drawGraphs();$('metrics').hidden=false;
+      $('scrub').min='0';$('scrub').max=String(sim.frames-1);$('scrub').value='0';$('scrub').disabled=false;toggle.disabled=false;toggle.textContent='一時停止';save.disabled=!(road.captureStream&&window.MediaRecorder);
+      status.textContent=`計算完了 — ${sim.frames.toLocaleString()}フレーム、乗客グループ ${sim.passengerRequestCount} 組`;
+    }catch(e){status.textContent=`入力または計算エラー: ${e.message}`;}
+    finally{run.disabled=false;progress.value=100;}
+  });
+  toggle.addEventListener('click',()=>{playing=!playing;toggle.textContent=playing?'一時停止':'再生';lastTime=0;});
+  $('scrub').addEventListener('input',e=>{if(!sim)return;playing=false;toggle.textContent='再生';setTime(Number(e.target.value)*sim.p.dt);});
+  $('busSelect').addEventListener('change',()=>{if(sim){drawRoad();drawGraphs();}});
+  $('playback').addEventListener('change',()=>{rate=+$('playback').value;});
+  function stopRecording(){if(recorder&&recorder.state!=='inactive')recorder.stop();}
+  save.addEventListener('click',()=>{
+    if(!sim||!window.MediaRecorder)return;const stream=road.captureStream(30),mime=MediaRecorder.isTypeSupported('video/webm;codecs=vp9')?'video/webm;codecs=vp9':'video/webm';
+    recorder=new MediaRecorder(stream,{mimeType:mime,videoBitsPerSecond:1200000});chunks=[];recording=true;
+    recorder.ondataavailable=e=>{if(e.data.size)chunks.push(e.data);};
+    recorder.onstop=()=>{const url=URL.createObjectURL(new Blob(chunks,{type:'video/webm'})),a=document.createElement('a');a.href=url;a.download='bus_traffic_simulation.webm';a.click();setTimeout(()=>URL.revokeObjectURL(url),30000);recording=false;save.disabled=false;save.textContent='動画を保存 (WebM)';status.textContent='動画を保存しました。';stream.getTracks().forEach(t=>t.stop());};
+    recorder.start();save.disabled=true;save.textContent='録画中…';timeNow=0;playing=true;toggle.textContent='一時停止';lastTime=0;
+  });
+})();
+</script>
+</body>
+</html>
